@@ -1,5 +1,10 @@
 ## journalctl
 sudo journalctl -u cron.service
+**sudo journalctl -xe** Check system logs for potential errors contributing to high load: 
+
+**sudo journalctl -u $service_name**
+
+**journalctl --since "2022-02-03 11:00:00"**
 
 
 ## linux log config
@@ -49,6 +54,10 @@ log config 文件 配置格式
 - named pipe:发送到预先使用mkfifo命令创建的FIFO文件的绝对路径中
 
 ## Linux 日志维护
+
+```sh
+sudo tail -f /var/log/syslog
+```
 ### 系统日志
 
 **/var/log/messages** 杂货铺，服务器的系统日志，也包括许多服务的日志，建议重点关注 tail -n 10 /var/log/messages

@@ -1,12 +1,6 @@
 ## monitoring 命令
 - **dmesg** hardware/system info
 - **iostat** average CPU load,disk activity iostat -xz 1 还是使用 
-- **sar -d 1** collect and report system activity
-```shell
-# -n 分析网络活动
-sudo sar -n TCP,ETCP 1
-sudo sar -n UDP 1
-```
 - **iotop** **lsof**
 - **vmstat** system activity
 - **mpstat** multiprocess usage 监测单个CPU情况

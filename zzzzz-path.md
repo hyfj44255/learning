@@ -12,6 +12,23 @@
 
 # 二手书 log部分 netstat
 
-# 上传到github
+# 上传到github done
 
 # medium 搜 linux 监控 日至
+
+学习
+    terraform
+    ansible
+    linux
+    shell
+    aws
+    k8s
+    github action
+    gitlab
+    
+
+    python
+    go
+    rust
+
+    web3.0

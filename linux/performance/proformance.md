@@ -1,9 +1,22 @@
+## 系统性能评判标准
+
+![图片(D:/xxx/md/1.png)](./resources/system-proformance-judge.png)
+
+## 创建单一线程的CPU密集型负载
+
+**while :; do :; done**
 
 ## dmesg
 dmesg | tail
 查找可能导致性能问题的错误。上面的示例包括oom-killer和TCP丢弃请求。**不要错过这一步！dmesg 总是值得检查**。这些日志可以帮助排查性能问题。
 
 ## TOP
+第一部分
+- us: User CPU time; 高百分比代表 user processes (like web servers or databases) might be causing the load.
+- sy: System CPU time; a high percentage suggests kernel processes may be contributing to the load.
+- id: Idle CPU time; a higher percentage indicates the CPU is more available.
+- wa: I/O wait time; a high percentage here suggests that the CPU is waiting on I/O operations, indicating possible memory or disk issues.
+
 - USER: 进程属主用户名
 - PR: 进程优先级
 - NI: 进程谦让度
@@ -33,6 +46,10 @@ c toggle 命令名称和完整命令行
 M 内存大小排序
 W 设置写入 ~/.toprc 文件中
 
+**top -p 6903** 查看某个pid
+
+Use **top -H -p <PID>** to view individual threads within the process and identify any threads consuming excessive CPU.
+
 ## PS 
 
 %CPU 该进程占用 CPU 的时间与该进程总的运行时间比
@@ -56,7 +73,6 @@ COMMAND
 
 **ps axjf** 树形显示进程
 
-
 ## pgrep nginx
 显示 nginx的pid
 
@@ -69,7 +85,7 @@ signal 表示信号
 
 ## killall
 killall nginx 
-通过 kill pid 需要杀死 nginx相关的所有 pid
+否则如果通过 kill pid 需要杀死 nginx相关的所有 pid
 
 ## CPU
 ```shell
@@ -78,6 +94,13 @@ cat /proc/cpuinfo | grep "cpu cores" | uniq # 每个物理 CPU 中 core个数
 cat /proc/cpuinfo | grep "processor" | wc -l # 逻辑 CPU 个数
 
 ```
+### CPU问题分析
+
+sudo perf top
+
+## CPU-hungry system calls: 
+Run **sysdig -c topprocs_cpu** to see the top CPU-consuming system calls.
+
 
 ## 查看内存
 ```bash
@@ -109,15 +132,18 @@ df -h
 ```
 
 ### 硬盘 io 性能
+
+当遇到高 I/O 等待问题时，您应该检查的第一件事就是机器是否使用了大量交换。由于硬盘比 RAM 慢，当系统用完 RAM 并开始在服务器中使用交换时，服务器的性能会受到影响。任何想要访问磁盘的东西，都必须与交换空间竞争磁盘 I/O。因此，您首先要诊断是否内存不足，如果是，则在那里解决问题。如果您的服务器中有足够的 RAM，则需要找出哪个程序获取了最多的 I/O。有时很难确切地找出哪个进程占用了高 I/O，但如果您的系统中有多个分区，则可以通过找出哪个分区获取了最多的 I/O 来缩小范围。为此，您将需要 iostat 程序
+
 ```shell
 iostat -c 3 5 # -c 显示cpu使用情况
-iostat -d -x -k 1 10  #-d 显示磁盘使用情况
+iostat -d -x -k 1 10  #-d 显示磁盘使用情况 %util 列代表磁盘压力
 ```
 rrqm/s merge 操作数量
 wrqm/s merge 写操作
 r/s i/o 设备次数
 avgrq-sz 平均每次设备 i/o 操作数据大小
-avgqu-sz 平均 io 队列长度
+avgqu-sz 平均 io 队列长度,average disk queue length
 await 平均每次设备io 等待时间
 
 %util 一秒钟有百分之多少时间用于io操作
@@ -126,7 +152,15 @@ await 平均每次设备io 等待时间
 
 await 大小取决于服务时间 (svctm),以及io队列长度和请求发出的模式。这响应时间应该小于5ms，否则要考虑更换更快的磁盘，调整内核 elevator 算法 ，优化应用，或者升级 cpu
 
-buckup: iostat -xz 1
+buckup: **iostat -xz 1** svctm column, which indicates the average disk service time.
+
+
+**iostat -h -t**
+- t: print the time for each report displayed
+- h : human readable
+
+- kB_dscd/s: indicates the amount of data discarded for the device expressed in kilobytes per second.
+- kB_dscd: the total amount of data discarded in the interval
 
 ### 查看某个目录大小
 ```shell
@@ -155,7 +189,7 @@ vmstat 1 4
 
 - Procs sector下
   - r 等待运行的进程数,多少个进程真的分配到CPU，和top的负载有关系，超过CPU数就会出现cpu瓶颈
-  - b 非中断睡眠的进程数量，阻塞的进程,
+  - b 非中断睡眠的进程数量，阻塞的进程；等待资源的进程数，比如正在等待IO或者内存交换
   - w 被交换出去的可运行的进程数
   - 标准情况下 r 和 b 应该为 r<5 b约等于0
 
@@ -169,16 +203,18 @@ vmstat 1 4
 
 
 - io
-  - bi 块设备每秒接收的块数量，这里的块设备是指系统上所有的磁盘和其他块设备，默认块大小是1024byte kb/s
-  - bo 从块设备收到
+  - bi 块设备每秒接收的块数量，这里的块设备是指系统上所有的磁盘和其他块设备，默认块大小是1024byte kb/s（即读磁盘 kb/s
+  - bo 写到块设备的数据总量（即写磁盘 kb/s
+  参考 bi+bo 参考值为1000,过了1000,而且wa 数值较大，说明io有问题，要考虑提升磁盘读写性能
 
 - cpu 按cpu使用百分比显示
-  - cs （context switch） 每秒上下文切换次数
+  - in 某一时间间隔内观测到的每秒设备中断数
+  - cs （context switch） 每秒上下文切换次数。 cs in越大，由内核消耗的CPU时间月多
   - us cpu用户模式下使用时间，曾经在一个做加密解密很频繁的服务器上，可以看到us接近100,r运行队列达到80(机器在做压力测试，性能表现不佳)。 us 的值比较高时，说明用户进程消耗的 cpu 时间多，但是如果长期大于 50%，就需要考虑优化程序或算法
   - sy 系统CPU时间，如果太高，表示系统调用时间长，例如是IO操作频繁。Sy的值较高时，说明内核消耗的CPU 资源很多。
   - id 闲置时间 一般来说，id + us + sy = 100,一般我认为id是空闲CPU使用率，us是用户CPU使用率，sy是系统CPU使用率
   - 根据经验， us+sy的参考值为 80%， 如果 us+sy大于 80%说明可能存在 CPU 资源不足。
-  - wa 列显示了 IO 等待所占用的 CPU 时间百分比。wa 值越高，说明 IO 等待越严重，根据经验，wa 的参考值为 20%，如果 wa 超过 20%，说明 IO 等待严重，引起 IO 等待的原因可能是磁盘大量随机读写造成的， 也可能是磁盘或者磁盘控制器的带宽瓶颈造成的（主要是块操作） 。
+  - **wa** 列显示了 IO 等待所占用的 CPU 时间百分比。wa 值越高，说明 IO 等待越严重，根据经验，wa 的参考值为 20%，如果 wa 超过 20%，说明 IO 等待严重，引起 IO 等待的原因可能是磁盘大量随机读写造成的， 也可能是磁盘或者磁盘控制器的带宽瓶颈造成的（主要是块操作） 。
 
 user% + sys% <70% 表示系统性能较好
 user% + sys% >= 85% 系统性能比较糟糕，需要全方位检查
@@ -192,6 +228,13 @@ vmstat 1 1    #新终端观察上下文切换情况
 r列： 远超系统CPU个数，说明存在大量CPU竞争
 us和sy列：sy列占比80%，说明CPU主要被内核占用
 in列： 中断次数明显上升，说明中断处理也是潜在问题
+
+
+**vmstat -a 1**
+非活动页，活动页缓存明细
+
+**vmstat -s** 
+event counter statistic
 
 ## 查看系统内核
 
@@ -209,7 +252,7 @@ ifconfig eth0
 # eth0 ip 地址
 ifconfig eth0 | grep "inet addr" |awk -F[:""]+ '{print $4}'
 
-# 5 个数据包 ping baidu
+# 5 个数据包 ping baidu 看延迟
 ping -c 5 baidu.com
 
 # nslookup 查一台机器的IP和其对应的域名
@@ -236,6 +279,15 @@ lsof -i:22
 
 # 查看远程已打开的网络链接 lsof –i @192.168.34.128
 ```
+
+Test connectivity ,Verify if the port is open:
+
+**telnet <server_ip> 22**
+
+Check firewall rules:
+
+**sudo ufw status sudo ufw allow 22/tcp**
+
 
 ### netstat
 
@@ -292,11 +344,12 @@ netstat –npl   # 可以查看你要打开的端口是否已经打开。
 netstat –rn    # 打印路由表信息。
 netstat –in    # 提供系统上的接口信息，打印每个接口的MTU,输入分组数，输入错误，输出分组数，输出错误，冲突以及当前的输出队列的长度。
 
-netstat –i #查看路由情况
+netstat –i #查看路由情况 检查接口的错误计数器
 
 netstat –r #查看网络接口状态/ 查看系统路由表 显示结果中 Flags=UG那一行就是系统默认网关
 
-netstat -s
+netstat -s # network error statistics. Look for high values in the errors column 查找高流量的重新传输和乱序数据包。哪些是“高”重新传输率依客 户机而不同，面向互联网的系统因具有不稳定的远程客户会比仅拥有同数据中心客户
+的内部系统具有更高的重新传输率。
 
 netstat -antp # 列出所有TCP的连接
 netstat -nltp # 列出本地所有TCP侦听套接字，不要加-a参数
@@ -305,11 +358,16 @@ netstat -nltp # 列出本地所有TCP侦听套接字，不要加-a参数
 netstat -tuln | grep TCP
 ```
 **ss -tuln**
+**ss -s**
+to see the socket usage of each process.
+
 **netstat -tuln**
 - -t 显示TCP连接
 - -u 显示UDP连接
 - -l 显示监听中的服务端口
 - -n 显示端口号而不是服务名称
+
+
 
 ### route
 查看系统的路由表
@@ -322,49 +380,20 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 # 所显示的内容中有UG的这行即是系统的默认网关
 ```
 
+### ip
 
-### sar
+**ip addr show** see the network interface configuration.
+**ip route show** network routing configuration
+**iptables -n -L**  see the network firewall configuration.
 
--u（获取 CPU 状态） 、-r（获取内存状态） 、-d（获取磁盘）
+### iftop
+```bash
+sudo apt install libpcap0.8 libpcap0.8-dev libncurses5 libncurses5-dev iftop
 
-通过 **sar –d**，可以对系统的磁盘 IO 做一个基本的统计
+sudo iftop -P
 
-- DEV 表示磁盘设备名称。
+```
 
-- tps 表示每秒到物理磁盘的传送数，也就是每秒的 I/O 流量。一个传送就是一个 I/O 请求，多个逻辑请求可以被合并为一个物理 I/O 请求。
-
-- rd_sec/s 表示每秒从设备读取的扇区数（1 扇区=512 字节）。
-
-- wr_sec/s 表示每秒写入设备的扇区数目。
-
-- avgrq-sz 表示平均每次设备 I/O 操作的数据大小（以扇区为单位）,类似于超市排队中每人所买东西的多少
-
-- avgqu-sz 表示平均 I/O 队列长度。 超市排队中单位时间内平均排队的人数
-
-- await 表示平均每次设备 I/O 操作的等待时间（以毫秒为单位） 。类似于超市排队中每人的等待时间
-
-- svctm表示平均每次设备 I/O 操作的服务时间（以毫秒为单位） 。超市排队中收银员的收款速度
-
-- %util表示一秒中有百分之几的时间用于 I/O 操作。类似于超市收银台前有人排队的时间比例
->对于磁盘 IO 性能，一般有如下评判标准：
-
-  正常情况下 svctm 应该是小于 await 值的，而 svctm 的大小和磁盘性能有关，CPU、内存的负荷也会对 svctm值造成影响，过多的请求也会间接的导致 svctm值的增加。
-
-  await 值的大小一般取决于 svctm 的值和 I/O 队列长度以及 I/O 请求模式，如果 svctm的值与 await 很接近，表示几乎没有 I/O 等待，磁盘性能很好，如果 await 的值远高于 svctm的值，则表示 I/O 队列等待太长，系统上运行的应用程序将变慢，此时可以通过更换更快的硬盘来解决问题。
-
-  %util 项的值也是衡量磁盘 I/O 的一个重要指标，如果%util 接近 100%，表示磁盘产生的 I/O 请求太多，I/O 系统已经满负荷的在工作，该磁盘可能存在瓶颈。长期下去，势必影响系统的性能，可以通过优化程序或者通过更换更高、更快的磁盘来解决此问题。
-
-**sar -n TCP,ETCP 1**
-
-sar 命令在这里用于查看 TCP 连接状态，其中包括：
-
-active/s：每秒本地发起的 TCP 连接数，既通过 connect 调用创建的 TCP 连接；
-passive/s：每秒远程发起的 TCP 连接数，即通过 accept 调用创建的 TCP 连接；
-retrans/s：每秒 TCP 重传数量；
-TCP连接数可以用来判断性能问题是否由于建立了过多的连接，进一步可以判断是主动发起的连接，还是被动接受的连接。TCP 重传可能是因为网络环境恶劣，或者服务器压力过大导致丢包。
-
-**sar -n DEV 1**
-sar命令在这里可以查看网络设备的吞吐率。在排查性能问题时，可以通过网络设备的吞吐量，判断网络设备是否已经饱和。如示例输出中，eth0网卡设备，吞吐率大概在22Mbytes/s，即176Mbits/sec，没有达到1Gbit/sec的硬件上限。
 
 ## mpstat -P ALL 1
 
@@ -400,12 +429,11 @@ buckup: **pidstat -C java -v/w**
 
 - 查看具体进程使用情况 **pidstat -T ALL -r -p 20955 1 10** p PID 指定PID
 
-## CPU问题分析
-
-sudo perf top
-
 ## strace
-sudo strace -p XXX #对app进程调用进行跟踪
+
+is a very dangerous tool, it can hang your process and might terminate it. So use only you have no option left.
+
+**sudo strace -p XXX** 对app进程调用进行跟踪
 
 ## mtr/traceroute 命令
 
@@ -418,3 +446,5 @@ sudo strace -p XXX #对app进程调用进行跟踪
 traeroute www.163.com
 # 以上是我们的机器到达 163.com 的数据包之间的完整路由，1 表示我们最近的路由器IP 地址
 ```
+## pmap
+pmap <PID> to analyze the memory usage of the process, including shared and private memory segments.
